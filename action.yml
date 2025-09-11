@@ -9,19 +9,15 @@ inputs:
   lamatic-endpoint:
     description: "Lamatic Project API endpoint"
     required: true
-    default: ${{ secrets.LAMATIC_PROJECT_ENDPOINT }}
   api-key:
     description: "Lamatic Projects API key"
     required: true
-    default: ${{ secrets.LAMATIC_PROJECT_API_KEY }}
   project-id:
     description: "Lamatic Project ID"
     required: true
-    default: ${{ secrets.LAMATIC_PROJECT_ID }}
   auto-deploy:
     description: "Auto deploy project after flows are synced"
     required: true
-    default: ${{ secrets.LAMATIC_AUTO_DEPLOY_PROJECT }}
     
 runs:
   using: "composite"
