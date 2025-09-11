@@ -1,0 +1,22 @@
+name: Sync flows to lamatic
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/lamatic/flows/**'
+
+jobs:
+  detect-flow-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync Flows to lamatic
+        uses: Lamatic/sync-flows-to-lamatic@v1.0
+        with:
+          lamatic-endpoint: ${{ secrets.LAMATIC_PROJECT_ENDPOINT }}
+          api-key: ${{ secrets.LAMATIC_PROJECT_API_KEY }}
+          project-id: ${{ secrets.LAMATIC_PROJECT_ID }}
+          auto-deploy: ${{ secrets.LAMATIC_AUTO_DEPLOY_PROJECT }}
