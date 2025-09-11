@@ -24,7 +24,7 @@
 
 ```yaml
   - name: Sync Flows to lamatic
-    uses: Lamatic/Sync-Flows-to-Lamatic@v1.0
+    uses: Lamatic/sync-flows-to-lamatic@v1.0
     with:
       lamatic-endpoint: ${{ secrets.LAMATIC_PROJECT_ENDPOINT }}
       api-key: ${{ secrets.LAMATIC_PROJECT_API_KEY }}
@@ -49,5 +49,5 @@
 To use a specific version, reference it in your workflow like so:
 
 ```yaml
-- uses: Lamatic/Sync-Flows-to-Lamatic@v1.0
+- uses: Lamatic/sync-flows-to-lamatic@v1.0
 ```
