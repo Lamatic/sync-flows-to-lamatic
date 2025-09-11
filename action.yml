@@ -1,0 +1,96 @@
+name: "Sync Flows to lamatic"
+description: "Detects changed flow files, updates them via API, and optionally deploys them."
+author: "Lamatic.ai"
+branding:
+  icon: 'zap'  
+  color: 'red'
+  
+inputs:
+  lamatic-endpoint:
+    description: "Lamatic Project API endpoint"
+    required: true
+    default: ${{ secrets.LAMATIC_PROJECT_ENDPOINT }}
+  api-key:
+    description: "Lamatic Projects API key"
+    required: true
+    default: ${{ secrets.LAMATIC_PROJECT_API_KEY }}
+  project-id:
+    description: "Lamatic Project ID"
+    required: true
+    default: ${{ secrets.LAMATIC_PROJECT_ID }}
+  auto-deploy:
+    description: "Auto deploy project after flows are synced"
+    required: true
+    default: ${{ secrets.LAMATIC_AUTO_DEPLOY_PROJECT }}
+    
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Get list of changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v34
+
+    - name: Extract flowSlugs from changed files and update
+      id: update-flows
+      shell: bash
+      run: |
+        echo "Changed files:"
+        echo "${{ steps.changed-files.outputs.all_changed_files }}"
+        changed_files="${{ steps.changed-files.outputs.all_changed_files }}"
+        declare -A flowSlugs=()
+        failed=0
+        for file in $changed_files; do
+          if [[ $file =~ ^lamatic/flows/([^/]+).ts$ ]]; then
+            flowSlug="${BASH_REMATCH[1]}"
+            flowSlugs["$flowSlug"]=1
+            contents=$(cat "$file" | jq -Rs .)
+            data="{\"query\":\"query UpdateFlow(   \$flowSlug: String!     \$rawContent: String         ) {   updateFlow(   flowSlug: \$flowSlug   rawContent: \$rawContent   ) {       status       result   } }\",\"variables\":{\"flowSlug\":\"$flowSlug\",\"rawContent\":$contents}}"
+            response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ inputs.lamatic-endpoint }}" \
+              -H "Authorization: Bearer ${{ inputs.api-key }}" \
+              -H "x-project-id: ${{ inputs.project-id }}" \
+              -H "Content-Type: application/json" \
+              --data "$data")
+            echo $response
+            if [[ "$response" -ne 200 ]]; then
+              echo "Failed request for $flowSlug: HTTP $response"
+              failed=1
+            fi
+          fi
+        done
+
+        if [[ $failed -eq 1 ]]; then
+          echo "One or more update requests failed."
+          exit 1
+        fi
+        # Output JSON array for deployment step
+        flowSlugs_json=$(printf '%s\n' "${!flowSlugs[@]}" | jq -R . | jq -s .)
+        echo "flowSlugs_json<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$flowSlugs_json" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+        echo $flowSlugs_json
+
+    - name: Check for auto deployment
+      id: check-for-auto-deployment
+      shell: bash
+      run: echo "auto_deploy=${{ inputs.auto-deploy }}" >> "$GITHUB_OUTPUT"
+
+    - name: Deploy updated flows
+      if: steps.update-flows.outputs.flowSlugs_json != '' && steps.check-for-auto-deployment.outputs.auto_deploy == 'true'
+      shell: bash
+      run: |
+        echo "Deploying flows"
+        flowSlugs_json='${{ steps.update-flows.outputs.flowSlugs_json }}'
+        data="{\"query\":\"query DeployFlows(   \$flowSlugs: [String!]!         ) {   deployFlows(   flowSlugs: \$flowSlugs   ) {       status       result   } }\",\"variables\":{\"flowSlugs\":$flowSlugs_json}}"
+        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ inputs.lamatic-endpoint }}" \
+          -H "Authorization: Bearer ${{ inputs.api-key }}" \
+          -H "x-project-id: ${{ inputs.project-id }}" \
+          -H "Content-Type: application/json" \
+          --data "$data")
+        echo $response
+        if [[ "$response" -ne 200 ]]; then
+          echo "Failed request for deployFlows: HTTP $response"
+          exit 1
+        fi
