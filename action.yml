@@ -42,22 +42,52 @@ runs:
           if [[ $file =~ ^lamatic/flows/([^/]+).ts$ ]]; then
             flowSlug="${BASH_REMATCH[1]}"
             flowSlugs["$flowSlug"]=1
+            if [[ ! -f "$file" ]]; then
+              echo "Error: File $file does not exist"
+              failed=1
+              continue
+            fi
             contents=$(cat "$file" | jq -Rs .)
-            data="{\"query\":\"query UpdateFlow(   \$flowSlug: String!     \$rawContent: String         ) {   updateFlow(   flowSlug: \$flowSlug   rawContent: \$rawContent   ) {       status       result   } }\",\"variables\":{\"flowSlug\":\"$flowSlug\",\"rawContent\":$contents}}"
-            echo "data: $data"
-            echo "lamatic-endpoint: ${{ inputs.lamatic-endpoint }}"
-            echo "api-key: ${{ inputs.api-key }}"
-            echo "project-id: ${{ inputs.project-id }}"
-            response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ inputs.lamatic-endpoint }}" \
+            if [[ $? -ne 0 ]] || [[ -z "$contents" ]]; then
+              echo "Error: Failed to read or process file $file"
+              failed=1
+              continue
+            fi
+            # Use jq to properly construct the JSON payload
+            # Note: $contents is already a JSON string from jq -Rs ., so we parse it back
+            data=$(jq -n \
+              --arg query "query UpdateFlow(\$flowSlug: String!, \$rawContent: String) { updateFlow(flowSlug: \$flowSlug, rawContent: \$rawContent) { status result } }" \
+              --arg flowSlug "$flowSlug" \
+              --argjson rawContent "$contents" \
+              '{query: $query, variables: {flowSlug: $flowSlug, rawContent: $rawContent}}')
+            echo "Updating flow: $flowSlug"
+            response_body=$(mktemp)
+            http_code=$(curl -s -w "%{http_code}" -o "$response_body" -X POST "${{ inputs.lamatic-endpoint }}" \
               -H "Authorization: Bearer ${{ inputs.api-key }}" \
               -H "x-project-id: ${{ inputs.project-id }}" \
               -H "Content-Type: application/json" \
-              --data "$data")
-            echo $response
-            if [[ "$response" -ne 200 ]]; then
-              echo "Failed request for $flowSlug: HTTP $response"
+              --data "$data" \
+              --max-time 30 \
+              --retry 2)
+            curl_exit=$?
+            if [[ $curl_exit -ne 0 ]]; then
+              echo "Error: curl failed with exit code $curl_exit"
+              echo "Response body (if any):"
+              cat "$response_body" 2>/dev/null || echo "(no response body)"
               failed=1
+              rm -f "$response_body"
+              continue
             fi
+            echo "HTTP Status: $http_code"
+            if [[ "$http_code" -ne 200 ]]; then
+              echo "Failed request for $flowSlug: HTTP $http_code"
+              echo "Response body:"
+              cat "$response_body"
+              failed=1
+            else
+              echo "Successfully updated flow: $flowSlug"
+            fi
+            rm -f "$response_body"
           fi
         done
 
@@ -83,14 +113,35 @@ runs:
       run: |
         echo "Deploying flows"
         flowSlugs_json='${{ steps.update-flows.outputs.flowSlugs_json }}'
-        data="{\"query\":\"query DeployFlows(   \$flowSlugs: [String!]!         ) {   deployFlows(   flowSlugs: \$flowSlugs   ) {       status       result   } }\",\"variables\":{\"flowSlugs\":$flowSlugs_json}}"
-        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ inputs.lamatic-endpoint }}" \
+        # Use jq to properly construct the JSON payload
+        data=$(jq -n \
+          --arg query "query DeployFlows(\$flowSlugs: [String!]!) { deployFlows(flowSlugs: \$flowSlugs) { status result } }" \
+          --argjson flowSlugs "$flowSlugs_json" \
+          '{query: $query, variables: {flowSlugs: $flowSlugs}}')
+        response_body=$(mktemp)
+        http_code=$(curl -s -w "%{http_code}" -o "$response_body" -X POST "${{ inputs.lamatic-endpoint }}" \
           -H "Authorization: Bearer ${{ inputs.api-key }}" \
           -H "x-project-id: ${{ inputs.project-id }}" \
           -H "Content-Type: application/json" \
-          --data "$data")
-        echo $response
-        if [[ "$response" -ne 200 ]]; then
-          echo "Failed request for deployFlows: HTTP $response"
+          --data "$data" \
+          --max-time 30 \
+          --retry 2)
+        curl_exit=$?
+        if [[ $curl_exit -ne 0 ]]; then
+          echo "Error: curl failed with exit code $curl_exit"
+          echo "Response body (if any):"
+          cat "$response_body" 2>/dev/null || echo "(no response body)"
+          rm -f "$response_body"
           exit 1
         fi
+        echo "HTTP Status: $http_code"
+        if [[ "$http_code" -ne 200 ]]; then
+          echo "Failed request for deployFlows: HTTP $http_code"
+          echo "Response body:"
+          cat "$response_body"
+          rm -f "$response_body"
+          exit 1
+        else
+          echo "Successfully deployed flows"
+        fi
+        rm -f "$response_body"
