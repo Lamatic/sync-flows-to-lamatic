@@ -1,0 +1,32 @@
+name: Update v1 tag
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update v1 tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Delete local v1 tag if it exists
+          git tag -d v1 2>/dev/null || true
+          
+          # Create new v1 tag pointing to current commit
+          git tag v1
+          
+          # Force push the tag to update it
+          git push origin v1 --force
+
