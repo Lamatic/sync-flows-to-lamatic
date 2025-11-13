@@ -44,6 +44,10 @@ runs:
             flowSlugs["$flowSlug"]=1
             contents=$(cat "$file" | jq -Rs .)
             data="{\"query\":\"query UpdateFlow(   \$flowSlug: String!     \$rawContent: String         ) {   updateFlow(   flowSlug: \$flowSlug   rawContent: \$rawContent   ) {       status       result   } }\",\"variables\":{\"flowSlug\":\"$flowSlug\",\"rawContent\":$contents}}"
+            echo "data: $data"
+            echo "lamatic-endpoint: ${{ inputs.lamatic-endpoint }}"
+            echo "api-key: ${{ inputs.api-key }}"
+            echo "project-id: ${{ inputs.project-id }}"
             response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ inputs.lamatic-endpoint }}" \
               -H "Authorization: Bearer ${{ inputs.api-key }}" \
               -H "x-project-id: ${{ inputs.project-id }}" \
